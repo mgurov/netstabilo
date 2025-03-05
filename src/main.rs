@@ -5,6 +5,9 @@ use std::io::{self, Write};
 use chrono::{Local, Duration};
 use std::net::TcpStream;
 use std::env;
+use std::io::BufRead;
+use regex::Regex;
+use std::fmt;
 
 type NetworkCheckFn = fn() -> bool;
 
@@ -42,10 +45,97 @@ fn format_duration(seconds: i64) -> String {
     format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
 }
 
+const COL_RED: &str = "\x1b[31m";
+const COL_RESET: &str = "\x1b[0m";
+const COL_GREEN: &str = "\x1b[32m";
 const OK: &str = "\x1b[32mOK\x1b[0m";
 const FAIL: &str = "\x1b[31mFAIL\x1b[0m";
 
+#[derive(PartialEq)]
+//#[derive(Debug)]
+enum Status {
+    OK,
+    Timeout,
+    Unknown,
+}
+
+impl fmt::Display for Status {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Status::OK => write!(f, "{}OK{}", COL_GREEN, COL_RESET),
+            Status::Timeout => write!(f, "{}ERR{}", COL_RED, COL_RESET),
+            Status::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
+struct RunningStatus {
+    ping_ok: Regex,
+    request_timeout: Regex,
+    status: Status,
+    since: String,
+    count: i32,
+}
+
+impl RunningStatus {
+
+
+    fn new() -> Self {
+        RunningStatus {
+            ping_ok: Regex::new(r"(?P<time>\d{2}:\d{2}:\d{2})\.\d+ \d+ bytes from \d+.\d+.\d+.\d+: icmp_seq=\d+ ttl=\d+ time=.*").unwrap(),
+            request_timeout: Regex::new(r"(?P<time>\d{2}:\d{2}:\d{2})\.\d+ Request timeout for icmp_seq \d+").unwrap(),
+            status: Status::Unknown,
+            since: "beginning".to_owned(),
+            count: 0,
+        }
+    }
+
+    fn register_line(&mut self, line: String) {
+
+        let mut new_status = Status::Unknown; 
+        let mut since = "now";
+        if let Some(caps) = self.ping_ok.captures(&line) {
+            new_status = Status::OK;
+            since = caps.name("time").map_or("", |m| m.as_str());
+        } else if let Some(caps) = self.request_timeout.captures(&line) {
+            new_status = Status::Timeout;
+            since = caps.name("time").map_or("", |m| m.as_str());
+        } else {
+            println!("{} {}", FAIL, line)
+        }
+        if new_status != self.status {
+            self.status = new_status;
+            self.since = since.to_owned();
+            self.count = 0;
+            println!()
+        }
+        self.count += 1;
+        print!("\r{} x {} since {}", self.status, self.count, self.since);
+
+        io::stdout().flush().unwrap();
+    }
+}
+
 fn main() {
+
+    let stdin = io::stdin();
+
+    // Lock the standard input handle and create a buffered reader
+    let handle = stdin.lock();
+    let mut lines = handle.lines();
+    let mut lines_processed = 0;
+    let mut accumulator = RunningStatus::new();
+
+    // Read and print each line
+    while let Some(line) = lines.next() {
+        lines_processed += 1;
+        match line {
+            Ok(content) => accumulator.register_line(content),
+            Err(error) => eprintln!("Error reading line: {}", error),
+        }
+    }
+
+    println!("Done, processed {} lines", lines_processed);
 
     let args: Vec<String> = env::args().collect();
 
@@ -53,7 +143,7 @@ fn main() {
     let running_mode = if args.len() > 1 {
         &args[1]
     } else {
-        "default"
+        return
     };
 
     let network_check: NetworkCheckFn = if running_mode == "ping" {
