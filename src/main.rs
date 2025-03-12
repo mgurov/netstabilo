@@ -82,7 +82,7 @@ impl RunningStatus {
 
     fn new() -> Self {
         RunningStatus {
-            ping_ok: Regex::new(r"(?P<time>\d{2}:\d{2}:\d{2})\.\d+ \d+ bytes from \d+.\d+.\d+.\d+: icmp_seq=\d+ ttl=\d+ time=.*").unwrap(),
+            ping_ok: Regex::new(r"(?P<time>\d{2}:\d{2}:\d{2})\.\d+ \d+ bytes from \d+.\d+.\d+.\d+: icmp_seq=\d+ ttl=\d+ time=(?P<speed>.*)").unwrap(),
             request_timeout: Regex::new(r"(?P<time>\d{2}:\d{2}:\d{2})\.\d+ Request timeout for icmp_seq \d+").unwrap(),
             status: Status::Unknown,
             since: "beginning".to_owned(),
@@ -94,9 +94,11 @@ impl RunningStatus {
 
         let mut new_status = Status::Unknown; 
         let mut since = "now";
+        let mut extra = "";
         if let Some(caps) = self.ping_ok.captures(&line) {
             new_status = Status::OK;
             since = caps.name("time").map_or("", |m| m.as_str());
+            extra = caps.name("speed").map_or("", |m| m.as_str());
         } else if let Some(caps) = self.request_timeout.captures(&line) {
             new_status = Status::Timeout;
             since = caps.name("time").map_or("", |m| m.as_str());
@@ -110,7 +112,7 @@ impl RunningStatus {
             println!()
         }
         self.count += 1;
-        print!("\r{} x {} since {}", self.status, self.count, self.since);
+        print!("\r{} x {} since {} {}", self.status, self.count, self.since, extra);
 
         io::stdout().flush().unwrap();
     }
