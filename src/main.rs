@@ -112,7 +112,7 @@ impl RunningStatus {
             println!()
         }
         self.count += 1;
-        print!("\r{} x {} since {} {}", self.status, self.count, self.since, extra);
+        print!("\r{} x {} since {} {}\x1b[K", self.status, self.count, self.since, extra);
 
         io::stdout().flush().unwrap();
     }
@@ -137,7 +137,7 @@ fn main() {
         }
     }
 
-    println!("Done, processed {} lines", lines_processed);
+    println!("\nDone, processed {} lines", lines_processed);
 
     let args: Vec<String> = env::args().collect();
 
